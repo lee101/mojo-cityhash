@@ -23,9 +23,6 @@ __all__ = [
 _U64_MAX = (1 << 64) - 1
 _U128_MAX = (1 << 128) - 1
 _EMPTY = np.zeros(1, dtype=np.uint8)
-_BYTES_ADDRESS = ctypes.pythonapi.PyBytes_AsString
-_BYTES_ADDRESS.argtypes = [ctypes.py_object]
-_BYTES_ADDRESS.restype = ctypes.c_void_p
 _LIB = lib()
 _HASH32 = _LIB.mch_cityhash32
 _HASH64 = _LIB.mch_cityhash64
@@ -56,11 +53,11 @@ def _buffer(data) -> np.ndarray:
     return array if array.size else _EMPTY[:0]
 
 
-def _address_and_size(data) -> tuple[object, int, int]:
+def _address_and_size(data) -> tuple[object, object, int]:
     if isinstance(data, str):
         data = data.encode("utf-8")
     if isinstance(data, bytes):
-        return data, int(_BYTES_ADDRESS(data)), len(data)
+        return data, data, len(data)
     array = _buffer(data)
     return array, int(array.ctypes.data), int(array.size)
 
@@ -108,7 +105,7 @@ def CityHash32(data) -> int:
     if isinstance(data, str):
         data = data.encode("utf-8")
     if isinstance(data, bytes):
-        return int(_HASH32(int(_BYTES_ADDRESS(data)), len(data)))
+        return int(_HASH32(data, len(data)))
     array, address, size = _address_and_size(data)
     result = _HASH32(address, size)
     _ = array
@@ -120,7 +117,7 @@ def CityHash64(data) -> int:
     if isinstance(data, str):
         data = data.encode("utf-8")
     if isinstance(data, bytes):
-        return int(_HASH64(int(_BYTES_ADDRESS(data)), len(data)))
+        return int(_HASH64(data, len(data)))
     array, address, size = _address_and_size(data)
     result = _HASH64(address, size)
     _ = array
@@ -133,9 +130,7 @@ def CityHash64WithSeed(data, seed=0) -> int:
     if isinstance(data, str):
         data = data.encode("utf-8")
     if isinstance(data, bytes):
-        return int(
-            _HASH64_WITH_SEED(int(_BYTES_ADDRESS(data)), len(data), seed)
-        )
+        return int(_HASH64_WITH_SEED(data, len(data), seed))
     array, address, size = _address_and_size(data)
     result = _HASH64_WITH_SEED(address, size, seed)
     _ = array
@@ -150,9 +145,7 @@ def CityHash64WithSeeds(data, seed0=0, seed1=0) -> int:
         data = data.encode("utf-8")
     if isinstance(data, bytes):
         return int(
-            _HASH64_WITH_SEEDS(
-                int(_BYTES_ADDRESS(data)), len(data), seed0, seed1
-            )
+            _HASH64_WITH_SEEDS(data, len(data), seed0, seed1)
         )
     array, address, size = _address_and_size(data)
     result = _HASH64_WITH_SEEDS(address, size, seed0, seed1)
@@ -167,16 +160,16 @@ def CityHash128(data) -> int:
     if isinstance(data, bytes):
         result = _result128()
         _HASH128(
-            int(_BYTES_ADDRESS(data)),
+            data,
             len(data),
             ctypes.addressof(result),
         )
-        return (int(result[0]) << 64) | int(result[1])
+        return (result[0] << 64) | result[1]
     array, address, size = _address_and_size(data)
     result = _result128()
     _HASH128(address, size, ctypes.addressof(result))
     _ = array
-    return (int(result[0]) << 64) | int(result[1])
+    return (result[0] << 64) | result[1]
 
 
 def CityHash128WithSeed(data, seed: int = 0) -> int:
@@ -187,13 +180,13 @@ def CityHash128WithSeed(data, seed: int = 0) -> int:
     if isinstance(data, bytes):
         result = _result128()
         _HASH128_WITH_SEED(
-            int(_BYTES_ADDRESS(data)),
+            data,
             len(data),
             seed >> 64,
             seed & _U64_MAX,
             ctypes.addressof(result),
         )
-        return (int(result[0]) << 64) | int(result[1])
+        return (result[0] << 64) | result[1]
     array, address, size = _address_and_size(data)
     result = _result128()
     _HASH128_WITH_SEED(
@@ -204,4 +197,4 @@ def CityHash128WithSeed(data, seed: int = 0) -> int:
         ctypes.addressof(result),
     )
     _ = array
-    return (int(result[0]) << 64) | int(result[1])
+    return (result[0] << 64) | result[1]

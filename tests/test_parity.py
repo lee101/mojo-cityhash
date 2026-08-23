@@ -193,6 +193,18 @@ def test_bytearray_is_exported_for_the_duration_of_the_ffi_call(monkeypatch):
     assert cityhash.CityHash64(data) == 123
 
 
+def test_bytes_fast_path_passes_original_buffer_to_ffi(monkeypatch):
+    data = b"zero-copy bytes"
+
+    def hash_without_copy(buffer, size):
+        assert buffer is data
+        assert size == len(data)
+        return 123
+
+    monkeypatch.setattr(cityhash, "_HASH64", hash_without_copy)
+    assert cityhash.CityHash64(data) == 123
+
+
 @pytest.mark.parametrize("seed", [-1, 1 << 64])
 def test_uint64_seed_range_is_checked(seed):
     with pytest.raises(OverflowError):

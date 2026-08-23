@@ -78,18 +78,24 @@ Mojo is faster.
 
 | Function | Input | Mojo | upstream | upstream / Mojo |
 |---|---:|---:|---:|---:|
-| `CityHash64` | small-key latency | 1.62 µs | 0.26 µs | 0.16x |
-| `CityHash64` | 4 KiB | 3.87 µs | 0.56 µs | 0.15x |
-| `CityHash64` | 1 MiB | 99.26 µs | 135.56 µs | 1.37x |
-| `CityHash32` | 1 MiB | 340.72 µs | 311.12 µs | 0.91x |
-| `CityHash128` | 1 MiB | 83.17 µs | 81.64 µs | 0.98x |
-| `CityHash64WithSeeds` | 1 MiB, seeded | 108.93 µs | 101.13 µs | 0.93x |
+| `CityHash64` | small-key latency | 1.01 µs | 0.19 µs | 0.19x |
+| `CityHash64` | 4 KiB | 1.40 µs | 0.57 µs | 0.41x |
+| `CityHash64` | 1 MiB | 94.71 µs | 84.19 µs | 0.89x |
+| `CityHash32` | 1 MiB | 230.50 µs | 216.88 µs | 0.94x |
+| `CityHash128` | 1 MiB | 90.42 µs | 86.18 µs | 0.95x |
+| `CityHash64WithSeeds` | 1 MiB, seeded | 97.32 µs | 93.64 µs | 0.96x |
 
-These are the direct results of the final `pixi run bench`. Mojo was faster in
-one listed case and slower in the other five in this run. The fixed
+These are the direct results of the final `pixi run bench`. The fixed
 Python-to-ctypes boundary is especially visible on small keys. The benchmark
-checks parity before timing each case. No parallel, SIMD, or GPU path is
-provided.
+checks parity before timing each case.
+
+CityHash's block rounds carry hash state into the next block, so blocks cannot
+be reordered or evaluated independently. Explicit SIMD block preloads were
+benchmarked and regressed the kernels because the scalar rounds still consume
+the lanes serially; they were not retained. The same dependency prevents useful
+`parallelize` work within a single hash. The kernels also perform well under two
+integer operations per byte moved, so a GPU path would lose to transfer and
+launch overhead. No parallel or GPU path is provided.
 
 ## How it works
 
@@ -100,9 +106,11 @@ loop is unrolled two blocks at a time with an odd-block remainder. Bytes are
 assembled explicitly so unaligned input is safe; optimized builds fold those
 assemblies into native unaligned scalar loads.
 
-Python obtains a pointer to a contiguous input buffer and passes its address and
-byte length as two signed 64-bit values. The exported Mojo functions reconstruct an
-`UnsafePointer[UInt8, AnyOrigin[mut=True]]` internally. Scalar 32- and 64-bit
+Python passes immutable bytes directly to the `void*` ctypes argument, avoiding
+an extra `PyBytes_AsString` foreign call. Other contiguous buffers contribute
+their existing address, so neither path copies input data. The exported Mojo
+functions reconstruct an `UnsafePointer[UInt8, AnyOrigin[mut=True]]` internally.
+Scalar 32- and 64-bit
 results return directly through the C ABI. A 128-bit result is written into a
 reusable, thread-local two-element `uint64` array and combined into a Python
 integer in the same lane order as `python-cityhash`. Exported function handles

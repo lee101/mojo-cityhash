@@ -15,14 +15,15 @@ LIB = os.environ.get("MOJO_CITYHASH_LIB") or os.path.join(
 I = ctypes.c_int64
 U32 = ctypes.c_uint32
 U64 = ctypes.c_uint64
+P = ctypes.c_void_p
 
 _SIGNATURES = {
-    "mch_cityhash32": ([I, I], U32),
-    "mch_cityhash64": ([I, I], U64),
-    "mch_cityhash64_with_seed": ([I, I, U64], U64),
-    "mch_cityhash64_with_seeds": ([I, I, U64, U64], U64),
-    "mch_cityhash128": ([I, I, I], None),
-    "mch_cityhash128_with_seed": ([I, I, U64, U64, I], None),
+    "mch_cityhash32": ([P, I], U32),
+    "mch_cityhash64": ([P, I], U64),
+    "mch_cityhash64_with_seed": ([P, I, U64], U64),
+    "mch_cityhash64_with_seeds": ([P, I, U64, U64], U64),
+    "mch_cityhash128": ([P, I, I], None),
+    "mch_cityhash128_with_seed": ([P, I, U64, U64, I], None),
 }
 
 

@@ -385,6 +385,7 @@ def city_murmur(s: BytePtr, offset0: Int, length0: Int, seed: Pair) -> Pair:
     return Pair(a ^ b, hash_len_16(b, a))
 
 
+@always_inline
 def cityhash128_with_seed(
     s: BytePtr, offset0: Int, length0: Int, seed: Pair
 ) -> Pair:
