@@ -74,17 +74,17 @@ pixi run python examples/quickstart.py
 Measured with `pixi run bench` on an Intel Xeon E5-2697 v4 at 2.30 GHz,
 Linux x86-64, Python 3.13.14. Times are best per-call wall times from five
 trials after adaptive batching. `upstream / Mojo` is greater than 1 only when
-Mojo is faster. Re-verified 2026-11-09 (see `bench/verify.md`); table shows
+Mojo is faster. Re-verified 2026-11-09, second VERIFY pass (see `bench/verify.md`); table shows
 the final `pixi run bench` run of that re-verification.
 
 | Function | Input | Mojo | upstream | upstream / Mojo |
 |---|---:|---:|---:|---:|
-| `CityHash64` | small-key latency | 1.02 µs | 0.22 µs | 0.22x |
-| `CityHash64` | 4 KiB | 1.44 µs | 0.57 µs | 0.39x |
-| `CityHash64` | 1 MiB | 97.69 µs | 90.70 µs | 0.93x |
-| `CityHash32` | 1 MiB | 239.20 µs | 224.06 µs | 0.94x |
-| `CityHash128` | 1 MiB | 92.09 µs | 88.66 µs | 0.96x |
-| `CityHash64WithSeeds` | 1 MiB, seeded | 99.35 µs | 93.91 µs | 0.95x |
+| `CityHash64` | small-key latency | 1.09 µs | 0.24 µs | 0.22x |
+| `CityHash64` | 4 KiB | 1.47 µs | 0.62 µs | 0.42x |
+| `CityHash64` | 1 MiB | 103.94 µs | 97.26 µs | 0.94x |
+| `CityHash32` | 1 MiB | 254.88 µs | 231.16 µs | 0.91x |
+| `CityHash128` | 1 MiB | 96.94 µs | 89.17 µs | 0.92x |
+| `CityHash64WithSeeds` | 1 MiB, seeded | 108.56 µs | 98.04 µs | 0.90x |
 
 The port is slower than upstream on every row below (all ratios `< 1`);
 none have been removed or reworded. The fixed
