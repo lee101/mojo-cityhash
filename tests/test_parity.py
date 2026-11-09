@@ -1,13 +1,27 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
+from fractions import Fraction
+import array
 import inspect
+import math
 
 import numpy as np
 import pytest
 
 import cityhash
 from conftest import upstream_cityhash as upstream
+
+
+# Hash outputs are integers, so parity is exact: tolerance 0 (no rounding allowed).
+TOLERANCE = 0
+
+
+def assert_parity(actual, expected):
+    assert type(actual) is int
+    assert type(expected) is int
+    assert abs(actual - expected) <= TOLERANCE
 
 
 BOUNDARIES = [
@@ -227,3 +241,345 @@ def test_seed_defaults_and_signatures_match_upstream():
         "seed0",
         "seed1",
     )
+
+
+@pytest.mark.parametrize("name", upstream.__all__)
+def test_each_public_function_parity_with_tolerance(name):
+    ours = getattr(cityhash, name)
+    reference = getattr(upstream, name)
+    data = b"cityhash parity tolerance check"
+    if name == "CityHash64WithSeed":
+        ours_data, reference_data = ours(data, 0x0123456789ABCDEF), reference(
+            data, 0x0123456789ABCDEF
+        )
+    elif name == "CityHash64WithSeeds":
+        ours_data, reference_data = ours(
+            data, 0x0123456789ABCDEF, 0xFEDCBA9876543210
+        ), reference(data, 0x0123456789ABCDEF, 0xFEDCBA9876543210)
+    elif name == "CityHash128WithSeed":
+        ours_data, reference_data = ours(
+            data, 0x0123456789ABCDEFFEDCBA9876543210
+        ), reference(data, 0x0123456789ABCDEFFEDCBA9876543210)
+    else:
+        ours_data, reference_data = ours(data), reference(data)
+    assert_parity(ours_data, reference_data)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"",
+        "",
+        bytearray(),
+        memoryview(b""),
+        np.zeros(0, dtype=np.uint8),
+        np.zeros((0, 5), dtype=np.uint8),
+        array.array("B"),
+    ],
+)
+def test_empty_input_parity(data):
+    for name in ("CityHash32", "CityHash64", "CityHash128"):
+        assert_parity(
+            getattr(cityhash, name)(data), getattr(upstream, name)(data)
+        )
+    assert_parity(
+        cityhash.CityHash64WithSeed(data, 7), upstream.CityHash64WithSeed(data, 7)
+    )
+    assert_parity(
+        cityhash.CityHash64WithSeeds(data, 7, 8),
+        upstream.CityHash64WithSeeds(data, 7, 8),
+    )
+    assert_parity(
+        cityhash.CityHash128WithSeed(data, 7),
+        upstream.CityHash128WithSeed(data, 7),
+    )
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"a",
+        b"\x00",
+        b"\xff",
+        "x",
+        bytearray(b"q"),
+        memoryview(b"z"),
+        np.array([42], dtype=np.uint8),
+        np.array(5, dtype=np.uint8),
+    ],
+)
+def test_one_element_input_parity(data):
+    for name in ("CityHash32", "CityHash64", "CityHash128"):
+        assert_parity(
+            getattr(cityhash, name)(data), getattr(upstream, name)(data)
+        )
+    assert_parity(
+        cityhash.CityHash128WithSeed(data, 0),
+        upstream.CityHash128WithSeed(data, 0),
+    )
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"a" * 2,
+        b"\x00" * 100,
+        b"x" * 100,
+        b"ab" * 64,
+        b"\xff" * 1000,
+        bytearray(b"a" * 64),
+        b"a" * 4096,
+    ],
+)
+def test_duplicate_bytes_parity(data):
+    for name in ("CityHash32", "CityHash64", "CityHash128"):
+        assert_parity(
+            getattr(cityhash, name)(data), getattr(upstream, name)(data)
+        )
+    assert_parity(
+        cityhash.CityHash64WithSeed(data, 1),
+        upstream.CityHash64WithSeed(data, 1),
+    )
+    assert_parity(
+        cityhash.CityHash64WithSeeds(data, 1, 2),
+        upstream.CityHash64WithSeeds(data, 1, 2),
+    )
+    assert_parity(
+        cityhash.CityHash128WithSeed(data, 1),
+        upstream.CityHash128WithSeed(data, 1),
+    )
+
+
+@pytest.mark.parametrize(
+    "array_data",
+    [
+        np.array([np.nan, 1.0, -1.0], dtype=np.float32),
+        np.array([np.inf, 1.0, -1.0], dtype=np.float32),
+        np.array([-np.inf, 1.0, -1.0], dtype=np.float32),
+        np.array([np.nan, 1.0, -1.0], dtype=np.float64),
+        np.array([np.inf, 1.0, -1.0], dtype=np.float64),
+        np.array([-np.inf, 1.0, -1.0], dtype=np.float64),
+        np.array([[np.nan, np.inf], [-np.inf, 1.0]], dtype=np.float64),
+        np.array([0.0, -0.0], dtype=np.float64),
+    ],
+)
+def test_nan_and_inf_payload_parity(array_data):
+    for name in ("CityHash32", "CityHash64", "CityHash128"):
+        assert_parity(
+            getattr(cityhash, name)(array_data),
+            getattr(upstream, name)(array_data),
+        )
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"\x00\x00\x80\x7f",
+        b"\x00\x00\x80\xff",
+        b"\x00\x00\xc0\x7f",
+        b"\x00\x00\x00\x7f\xf0\xff\xff\xff",
+        b"\x00" * 8,
+        b"\xff" * 8,
+    ],
+)
+def test_float_bit_pattern_payload_parity(data):
+    for name in ("CityHash32", "CityHash64", "CityHash128"):
+        assert_parity(
+            getattr(cityhash, name)(data), getattr(upstream, name)(data)
+        )
+
+
+@pytest.mark.parametrize(
+    "seed",
+    [
+        0,
+        1,
+        3.0,
+        3.5,
+        -0.5,
+        True,
+        np.uint64(5),
+        np.int64(5),
+        np.int32(5),
+        np.float32(5.0),
+        np.float64(3.9),
+        np.bool_(True),
+        np.bool_(False),
+        Decimal(5),
+        Decimal("5.5"),
+        Fraction(5, 1),
+        Fraction(5, 2),
+    ],
+)
+def test_seed_int_conversion_parity(seed):
+    assert_parity(
+        cityhash.CityHash64WithSeed(b"x", seed),
+        upstream.CityHash64WithSeed(b"x", seed),
+    )
+    assert_parity(
+        cityhash.CityHash64WithSeeds(b"x", 0, seed),
+        upstream.CityHash64WithSeeds(b"x", 0, seed),
+    )
+
+
+class _IndexOnly:
+    def __index__(self):
+        return 5
+
+
+class _IntOnly:
+    def __int__(self):
+        return 5
+
+
+class _IntAndIndex:
+    def __index__(self):
+        return 6
+
+    def __int__(self):
+        return 7
+
+
+def test_seed_index_only_is_rejected_like_upstream():
+    with pytest.raises(TypeError, match="an integer is required"):
+        cityhash.CityHash64WithSeed(b"x", _IndexOnly())
+
+
+def test_seed_int_only_matches_upstream():
+    assert_parity(
+        cityhash.CityHash64WithSeed(b"x", _IntOnly()),
+        upstream.CityHash64WithSeed(b"x", _IntOnly()),
+    )
+    assert_parity(
+        cityhash.CityHash64WithSeed(b"x", _IntAndIndex()),
+        upstream.CityHash64WithSeed(b"x", _IntAndIndex()),
+    )
+
+
+def test_seed_int_exception_propagates_like_upstream():
+    class _RaisingInt:
+        def __int__(self):
+            raise ValueError("boom-int")
+
+    with pytest.raises(ValueError, match="boom-int"):
+        cityhash.CityHash64WithSeed(b"x", _RaisingInt())
+    with pytest.raises(ValueError, match="boom-int"):
+        upstream.CityHash64WithSeed(b"x", _RaisingInt())
+
+
+@pytest.mark.parametrize(
+    "seed",
+    [
+        "5",
+        b"5",
+        None,
+        [1],
+        5 + 0j,
+        float("nan"),
+        float("inf"),
+        -float("inf"),
+    ],
+)
+def test_seed_rejected_like_upstream(seed):
+    with pytest.raises((TypeError, ValueError, OverflowError)) as ours_info:
+        cityhash.CityHash64WithSeed(b"x", seed)
+    with pytest.raises((TypeError, ValueError, OverflowError)) as upstream_info:
+        upstream.CityHash64WithSeed(b"x", seed)
+    assert ours_info.value.__class__ is upstream_info.value.__class__
+
+
+@pytest.mark.parametrize(
+    "seed",
+    [
+        np.float32(np.nan),
+        np.float32(np.inf),
+        np.float32(-np.inf),
+        Decimal("NaN"),
+        Decimal("Infinity"),
+        Decimal("-Infinity"),
+        Fraction(-1, 1),
+        Fraction(1 << 70, 1),
+    ],
+)
+def test_seed_nonfinite_and_out_of_range_raise_like_upstream(seed):
+    with pytest.raises((ValueError, OverflowError)) as ours_info:
+        cityhash.CityHash64WithSeed(b"x", seed)
+    with pytest.raises((ValueError, OverflowError)) as upstream_info:
+        upstream.CityHash64WithSeed(b"x", seed)
+    assert ours_info.value.__class__ is upstream_info.value.__class__
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        np.arange(20, dtype=np.uint8)[::2],
+        np.arange(20, dtype=np.uint8)[::-1],
+        np.arange(24, dtype=np.uint8).reshape(4, 6).T,
+        np.asfortranarray(np.arange(24, dtype=np.uint8).reshape(4, 6)),
+        np.arange(24, dtype=np.uint8).reshape(4, 6)[:, ::2],
+        np.arange(10, dtype=np.uint16)[::2],
+        np.ma.array(np.arange(20, dtype=np.uint8)[::2]),
+    ],
+)
+def test_ndarray_noncontiguous_raises_value_error_like_upstream(data):
+    for name in ("CityHash32", "CityHash64", "CityHash128"):
+        with pytest.raises(ValueError, match="not C-contiguous") as ours_info:
+            getattr(cityhash, name)(data)
+        with pytest.raises(ValueError, match="not C-contiguous") as upstream_info:
+            getattr(upstream, name)(data)
+        assert (
+            ours_info.value.__class__ is upstream_info.value.__class__
+        )
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        memoryview(b"0123456789")[::2],
+        memoryview(b"")[::2],
+        memoryview(np.arange(20, dtype=np.uint8)[::2]),
+        memoryview(bytearray(b"0123456789"))[::2],
+        memoryview(np.arange(24, dtype=np.uint8).reshape(4, 6).T),
+    ],
+)
+def test_memoryview_noncontiguous_raises_buffer_error_like_upstream(data):
+    for name in ("CityHash32", "CityHash64", "CityHash128"):
+        with pytest.raises(BufferError) as ours_info:
+            getattr(cityhash, name)(data)
+        with pytest.raises(BufferError) as upstream_info:
+            getattr(upstream, name)(data)
+        assert (
+            ours_info.value.__class__ is upstream_info.value.__class__
+        )
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        np.arange(24, dtype=np.uint8).reshape(4, 6),
+        np.arange(10, dtype=np.uint8)[2:],
+        memoryview(b"0123456789")[2:],
+        np.arange(1, dtype=np.uint8)[::2],
+        np.array([1, 2, 3], dtype=np.int32),
+        np.array([True, False], dtype=bool),
+        np.array([1 + 2j], dtype=np.complex128),
+        np.array([1, 2], dtype=">u2"),
+        array.array("I", [65, 66, 67]),
+        "Grüße, 世界",
+        b"bytes\x00with\xffbinary",
+    ],
+)
+def test_mismatched_and_multidimensional_shapes_parity(data):
+    for name in ("CityHash32", "CityHash64", "CityHash128"):
+        assert_parity(
+            getattr(cityhash, name)(data), getattr(upstream, name)(data)
+        )
+
+
+@pytest.mark.parametrize("data", [None, 42, 3.14, [1, 2, 3], {"a": 1}, (1, 2)])
+def test_unsupported_types_raise_type_error_like_upstream(data):
+    with pytest.raises(TypeError) as ours_info:
+        cityhash.CityHash64(data)
+    with pytest.raises(TypeError) as upstream_info:
+        upstream.CityHash64(data)
+    assert ours_info.value.__class__ is upstream_info.value.__class__

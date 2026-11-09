@@ -48,6 +48,19 @@ def _buffer(data) -> np.ndarray:
     except TypeError:
         raise _type_error(data) from None
     if not view.c_contiguous:
+        # Match upstream CityHash64: ndarray raises ValueError, memoryview raises BufferError.
+        if isinstance(data, np.ndarray):
+            raise ValueError("ndarray is not C-contiguous")
+        if isinstance(data, memoryview):
+            raise BufferError(
+                "memoryview: underlying buffer is not C-contiguous"
+            )
+        try:
+            np.frombuffer(data, dtype=np.uint8)
+        except BufferError:
+            raise
+        except Exception:
+            pass
         raise ValueError(f"{type(data).__name__} is not C-contiguous")
     array = np.frombuffer(view, dtype=np.uint8, count=view.nbytes)
     return array if array.size else _EMPTY[:0]
@@ -63,15 +76,13 @@ def _address_and_size(data) -> tuple[object, object, int]:
 
 
 def _uint64(value, name: str) -> int:
-    if isinstance(value, float):
+    # Match upstream CityHash64WithSeed: int subclasses use the long value, others use __int__.
+    if isinstance(value, int):
+        number = operator.index(value)
+    elif hasattr(type(value), "__int__"):
         number = int(value)
     else:
-        try:
-            number = operator.index(value)
-        except TypeError:
-            raise TypeError(
-                f"an integer is required for {name}, got {type(value).__name__}"
-            ) from None
+        raise TypeError("an integer is required")
     if number < 0:
         raise OverflowError("can't convert negative value to uint64_t")
     if number > _U64_MAX:
